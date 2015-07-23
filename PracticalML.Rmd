@@ -1,0 +1,94 @@
+---
+title: "Practical ML Coursework"
+author: "Robert McKay Lothian"
+date: "Tuesday, July 21, 2015"
+output: html_document
+---
+## Identifying Weight Training Faults
+
+### Overview
+
+Some sensor data have been collected for correct and incorrect execution of weight training exercises (source: http://groupware.les.inf.puc-rio.br/har). The data were supplied with a class label indicating correct form or one of four common errors. A random forest was trained to predict the label from the sensor data. The model attained high accuracy, with an error rate of 0.0077 on the validation set.
+
+### Data Cleaning
+
+The data consisted of 19622 observations of 159 variables and the class label. Additionally, 20 unlabelled cases were provided for assesment purposes. Some of the variables had many missing values and 100 variables had no values in the unlabelled problem set. These variables were removed from the data, after which all cases were complete. Seven of the remaining variables were labels, such as timestamps and participant names, that could not be used for prediction on new data. These variables were also removed, leaving a set of 52 numerical predictors.
+A stratified sample of 25% of the data was reserved for validation; the remaining data (14718 cases) were used to tune and fit the machine learning algorithm.
+
+```{r,echo=FALSE, results='hide',warning=FALSE}
+## load libraries
+library(caret,quietly=TRUE,warn.conflicts=FALSE,verbose=FALSE)
+## randomforest and doParallel packages required on first run
+## library(randomForest,quietly=TRUE,warn.conflicts=FALSE,verbose=FALSE)
+## library(doParallel,quietly=TRUE,warn.conflicts=FALSE,verbose=FALSE)
+```
+```{r,echo=FALSE}
+## load data
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+##Clean up training set
+badcols <- apply(is.na(testing),2,sum) == 20
+goodcols <- names(badcols)[!badcols]
+trainclean <- training[,goodcols[8:59]]
+trainclean <- cbind(training$classe,trainclean)
+names(trainclean)[1]<-"classe"
+```
+```{r,echo=FALSE}
+## Split off validation set - set seed so that reruns will make same split
+set.seed(17622)
+trainIndex <- createDataPartition(trainclean$classe,p=.75,list=FALSE)
+trainSet <- trainclean[trainIndex,]
+validSet <- trainclean[-trainIndex,]
+```
+
+### Model and Fitting Details
+
+The chosen model was a random forest, accepting all default settings, except where overridden by the experimental design. The chosen design was a ten times ten-fold repeated cross-validation. The random forest has one tunable parameter: the number of randomly selected candidate variables to try at each split. This was tuned using the values 2, 5, 12, 27 and 52. By default, the only values used for tuning are 2, 27 and 52. It was hoped that the finer grid might give improved results.
+Scaling and centering have no effect on the random forest, so these were not applied. PCA could potentially have a positive effect, but a preliminary experiment using a threshold of 95% of variance gave worse performance (97.6% versus 99.4% on a 10-fold cross-validation) than using the original data. Hence, no pre-processing was applied.
+```{r, echo=FALSE}
+##The commented commands create and save the model - the knitR run reads it back in.
+##rfGrid <- expand.grid(mtry=c(2,5,12,27,52))
+##rfControl <- trainControl(method="repeatedcv",number=10,repeats=10)
+##registerDoParallel(cores=4)
+##set.seed(2371)
+##modelrf <- train(classe~.,method="rf",trControl=rfControl,data=trainSet,tuneGrid=rfGrid)
+## saveRDS(modelrf,"modelrf.rds")
+modelrf <- readRDS("modelrf.rds")
+##
+## For complete reproducibility, here are the commands I used to try out PCA.
+## set.seed (1143)
+## rfControl <- trainControl(method="cv",number=10,preProcOptions=list(thresh=0.95))
+## modelrf.pca <- train(classe~.,method="rf",trControl=rfControl,data=trainSet,preProcess="pca")
+## set.seed (1143)
+## rfControl=trainControl(method="cv",number=10)
+## modelrf.plain <- train(classe~.,method="rf",trControl=rfControl,data=trainSet)
+##
+
+```
+### Results
+
+The model output relating to accuracy was as shown below.
+```{r, echo=FALSE,results='hide'}
+library(randomForest,quietly=TRUE,warn.conflicts=FALSE,verbose=FALSE)
+## Infuriatingly, there are still some messages coming through to the html.
+```
+
+```{r,echo=FALSE}
+modelrf$results
+```
+The cross-validation indicated that the best value of the tuning parameter was 5. A comparison plot is shown in Figure 1.
+
+```{r,echo=FALSE,warning=FALSE}
+library(ggplot2,quietly=TRUE,warn.conflicts=FALSE,verbose=FALSE)
+ggplot(modelrf)
+```
+
+Figure 1: Accuracy for various values of the tuning parameter, which is the number of candidate variables tried at each split.
+
+The cross-validation predicted an accuracy of 0.9948 (error rate 0.0052). However, the experiment included parameter tuning and the data were also used to decide against preprocessing with PCA. Hence, the untouched validation set was used to estimate performance, giving the results below. The predicted accuracy is 0.9923, equivalent to an out of sample error rate of 0.0077.
+
+```{r,echo=FALSE}
+prediction <- predict(modelrf,validSet)
+print(confusionMatrix(prediction,validSet$classe))
+```
+
